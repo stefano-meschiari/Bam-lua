@@ -1,0 +1,33 @@
+%@-- Any line that begins with %@-- is a comment, will not be in 
+%@-- the output file.
+
+This is a sample BAM template (test.md.bam). A BAM template is any 
+type of plain-text file with special code fragments. See README.md 
+for details.
+
+%@ url = "http://en.wikipedia.org/wiki/Collatz_conjecture"
+
+The Collatz conjecture
+======================
+Also known as the 3n+1 conjecture [Wikipedia][1]. It is a sequence of numbers
+with <@ unexpected | surprising | nontrivial @> features. 
+
+The sequence is built as follows: take any integer n. If n is even, divide it
+by two; if n is odd, multiply by 3 and add 1. Stop the sequence when n == 1.
+
+%@ n = ceil(tonumber(prompt("Choose an integer number: ") or 6))
+
+You chose <@ n @>.
+%@ iters = 0
+%@ while n > 1 do
+<@ iters + 1 @>. <@ n @> is <@? n % 2 == 0, "even, so we divide by two", "odd, so we multiply by three and add 1" @>.
+%@ n = iff(n % 2 == 0, n / 2, 3 * n + 1); iters = iters + 1
+%@ end
+
+It took <@ iters @> iterations to get to 1.
+
+Other examples
+==============
+Files in directory: <@ ls() @>.
+
+[1]: <@ url @>
