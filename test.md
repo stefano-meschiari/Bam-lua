@@ -14,6 +14,7 @@ by two; if n is odd, multiply by 3 and add 1. Stop the sequence when n == 1.
 
 
 You chose 7.
+
 1. 7 is odd, so we multiply by three and add 1.
 2. 22 is even, so we divide by two.
 3. 11 is odd, so we multiply by three and add 1.
