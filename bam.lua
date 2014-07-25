@@ -13,6 +13,8 @@ bam.cache = false
 bam.nformat = "%.2f"
 bam.words = {}
 bam.words["and"] = "and"
+bam.langs = { 'lua', 'R' }
+bam.lang = 'lua'
 
 bam.interp_filters = {}
 bam.line_filters = {}
@@ -83,6 +85,8 @@ function buffer()
    setmetatable(buf, mt_buffer)
    return buf
 end
+
+sprintf = string.format
 
 -- Return true if fn exists
 function exists(fn)
@@ -450,17 +454,41 @@ table.insert(bam.interp_filters, function(str, idx)
                 end
 end)
 
+-- <@fn number @>: floating point
+table.insert(bam.interp_filters, function(str, idx)
+                if (str:sub(1, 1) == "f") then
+                   return string.format("string.format('%%.%df', %s, %d)",
+                                        tonumber(str:sub(2, 2)), str:sub(3), tonumber(str:sub(2, 2)))
+                end
+end)
+
+-- <@en number @>: scientific notation
+table.insert(bam.interp_filters, function(str, idx)
+                if (str:sub(1, 1) == "e") then
+                   return string.format("sprintf('%%.%df', %s)",
+                                        tonumber(str:sub(2, 2)), str:sub(3), tonumber(str:sub(2, 2)))
+                end
+end)
+
+-- <@En number @>: a x 10^b
+table.insert(bam.interp_filters, function(str, idx)
+                if (str:sub(1, 1) == "E") then
+                   local n = str:sub(2, 2)
+                   return string.format("sprintf('$%%.%df \\\\times 10^{%%.0f}$', %s/10^floor(log10(%s)), floor(log10(%s)))", n, str:sub(3), str:sub(3), str:sub(3))
+                end
+end)
+
 -- <@! command @>: executes the command, substitutes output
 table.insert(bam.interp_filters, function(str, idx)
                 if (str:sub(1, 1) == "!") then
-                   return "exec([===[" .. str:sub(2) .. " 2>&1]===]):trim()"
+                   return "string.trim(exec([===[" .. str:sub(2) .. " 2>&1" .. "]===]))"
                 end
 end)
 
 -- <@~ command @>: includes the file
 table.insert(bam.interp_filters, function(str, idx)
                 if (str:sub(1, 1) == "~") then
-                   return "readf([===[" .. str:sub(2) .. "]===])"
+                   return "readf([===[" .. str:sub(2)  .. "]===])"
                 end
 end)
 
@@ -499,161 +527,166 @@ function filter(typ, fnc, endblock, startfnc, linefnc, endfnc)
                    if startfnc then ret = startfnc() end
                    bam.block = true
                    if linefnc then bam.block_function = linefnc else bam.block_function = ident end
-				return ret
-			elseif str:trim() == endblock then
-				local ret = ""
-				if endfnc then ret = endfnc() end
-				bam.block = false
-				return ret
-			end
-		end)
-		
-	else
-		error("Unknown filter type " .. typ or "nil")
-	end
+                   return ret
+                elseif str:trim() == endblock then
+                   local ret = ""
+                   if endfnc then ret = endfnc() end
+                   bam.block = false
+                   return ret
+                end
+      end)
+      
+   else
+      error("Unknown filter type " .. typ or "nil")
+   end
 end
 
 function _preprocess(buf)
-	local out = buffer()
-	
-	for i, line in ipairs(buf) do
-		bam.lineidx = i
-		bam.line = line
-		if line:trim():match("^%%%@") then
-			line = line:sub(3):trim()
-			if line ~= "" then
-				out:appendn(_apply_filters(bam.line_filters, line, i))
-			end
-		elseif bam.block then
-			out:appendn(bam.block_function(line))
-		else
-			line = _interpret(line)
-			out:appendn("pn([===[", line, "]===])")
-		end
+   local out = buffer()
+   
+   for i, line in ipairs(buf) do
+      bam.lineidx = i
+      bam.line = line
+      if line:trim():match("^%%%@") then
+         line = line:sub(3):trim()
+         if line ~= "" then
+            out:appendn(_apply_filters(bam.line_filters, line, i))
+         end
+      elseif bam.block then
+         out:appendn(bam.block_function(line))
+      else
+         line = _interpret(line)
+         out:appendn("pn([===[", line, bam.quoteclose, "]===])")
+      end
 
-	end
-	
-	return out:tostring()
+   end
+   
+   return out:tostring()
 end
 
 function p(...)
-	local args = {...}
-	for i = 1, #args do
-		__body:append(_varexpand(args[i]))
-	end
+   local args = {...}
+   for i = 1, #args do
+      __body:append(_varexpand(args[i]))
+   end
 end
 
 _rarrs = {}
 
 function _interpret(str)
-	local magic = false
-	return str:gsub("%<%@(.-)%@%>", function(str)
-		magic = true
-		return "]===], tostring(" .. _apply_filters(bam.interp_filters, str) .. "), [===["
-	end), magic
+   local magic = false
+   return str:gsub("%<%@(.-)%@%>", function(str)
+                      magic = true
+                      return "]===], tostring(" .. _apply_filters(bam.interp_filters, str) .. "), [===["
+   end), magic
 end
 
 
 function _interpret2(str)
-	
-	-- remove %< tag
-	str = str:sub(3, -3)
-	str = string.trim(str)
-	_result = ""
-	
-	local frag = loadstring("return " .. str)
-	return tostring(frag())
+   
+   -- remove %< tag
+   str = str:sub(3, -3)
+   str = string.trim(str)
+   _result = ""
+   
+   local frag = loadstring("return " .. str)
+   return tostring(frag())
 end
 
 function _varexpand(str)
-	str = tostring(str)
-	
-	while str:match("(%<%@.-%@%>)") do
-		str = str:gsub("(%<%@.-%@%>)", _interpret2)
-	end
-	
-	return tostring(str)
+   str = tostring(str)
+   
+   while str:match("(%<%@.-%@%>)") do
+      str = str:gsub("(%<%@.-%@%>)", _interpret2)
+   end
+   
+   return tostring(str)
 end
 
 bam.expand = _varexpand
 bam.interpret = _interpret
 
 setmetatable(_G, {
-	__index = function(t, k) 	
-		if type(k) == "string" then
-			if exists("vars/@" .. k) then
-				_G[k] = readf("vars/@" .. k)
-				return _G[k]
-			elseif exists("vars/t@" .. k) then
-				_G[k] = reada("t@" .. k)
-				return _G[k]
-			elseif exists("vars/n@" .. k) then
-				_G[k] = tonumber(readf("vars/n@" .. k))
-				return _G[k]
-			end
-		end
-	end
+                __index = function(t, k) 	
+                   if type(k) == "string" then
+                      if exists("vars/@" .. k) then
+                         _G[k] = readf("vars/@" .. k)
+                         return _G[k]
+                      elseif exists("vars/t@" .. k) then
+                         _G[k] = reada("t@" .. k)
+                         return _G[k]
+                      elseif exists("vars/n@" .. k) then
+                         _G[k] = tonumber(readf("vars/n@" .. k))
+                         return _G[k]
+                      end
+                   end
+                end
 })
 
 -----------------------------------------------------------------------------
 -- main script
 
 function bam.print_help()
-	print("Usage: lua bam2.lua [--cache] [--debug] [--sandbox] [--nformat format] [--require require] inputfile", "\n")
-	os.exit()
+   print("Usage: lua bam2.lua [--cache] [--debug] [--sandbox] [--nformat format] [--require require] inputfile", "\n")
+   os.exit()
 end
 
+
 for i = 1, #arg do
-	if arg[i] == "--no-inject" then
-		bam.inject = false
-	elseif arg[i] == "--help" then
-		bam.print_help()
-	elseif arg[i] == "--cache" then
-		bam.cache = true
-	elseif arg[i] == "--plugin" then
-		dofile(arg[i+1])
-		i = i + 1
-	elseif arg[i] == "--sandbox" then
-		bam.sandbox = true
-	elseif arg[i] == "--nformat" or arg[i] == "-n" then
-		bam.nformat = arg[i+1]
-		i = i + 1
-	elseif arg[i] == "--bypass" then
-		bam.bypass = true
-	elseif arg[i] == "--debug" then
-		bam.debug = true
-	elseif arg[i] == "-r" or arg[i] == "--require" then
-		require(arg[i+1])
-		i = i + 1
-	else
-		bam.infile = arg[i] .. ".bam"
-		bam.auxfile = arg[i] .. ".aux"		
-		bam.outfile = arg[i]
-	end
+   if arg[i] == "--no-inject" then
+      bam.inject = false
+   elseif arg[i] == "--help" then
+      bam.print_help()
+   elseif arg[i] == "--cache" then
+      bam.cache = true
+   elseif arg[i] == "--plugin" then
+      dofile(arg[i+1])
+      i = i + 1
+   elseif arg[i] == "--sandbox" then
+      bam.sandbox = true
+   elseif arg[i] == "--nformat" or arg[i] == "-n" then
+      bam.nformat = arg[i+1]
+      i = i + 1
+   elseif arg[i] == "--bypass" then
+      bam.bypass = true
+   elseif arg[i] == "--debug" then
+      bam.debug = true
+   elseif arg[i] == "--lang" then
+      bam.lang = arg[i+1]
+      print("Using lang ", bam.lang)
+      i = i + 1
+   elseif arg[i] == "-r" or arg[i] == "--require" then
+      require(arg[i+1])
+      i = i + 1
+   else
+      bam.infile = arg[i] .. ".bam"
+      bam.auxfile = arg[i] .. ".aux"		
+      bam.outfile = arg[i]
+   end
 end
 
 if not bam.infile then
-	bam.print_help()
+   bam.print_help()
 end
 
 if bam.sandbox then
-	sandboxf('io')
-	local date = os.date
-	local time = os.time
-	sandboxf('os')
-	os.date = date
-	os.time = time
-	sandboxf('exec')
-	sandboxf('require')
-	sandboxf('dofile')
+   sandboxf('io')
+   local date = os.date
+   local time = os.time
+   sandboxf('os')
+   os.date = date
+   os.time = time
+   sandboxf('exec')
+   sandboxf('require')
+   sandboxf('dofile')
 end
 
 if bam.inject then
-	-- inject table, math, os and io functions into global
-	injectf(math)
-	injectf(table)
-	injectf(os)
-	injectf(io)
+   -- inject table, math, os and io functions into global
+   injectf(math)
+   injectf(table)
+   injectf(os)
+   injectf(io)
 end
 
 assert(exists(bam.infile), "Could not find " .. bam.infile)
@@ -667,24 +700,55 @@ local body = _preprocess(__script)
 __body = buffer()
 
 local fidscript = assert(_open(bam.auxfile, "w"))
-fidscript:write(body)
-fidscript:close()
+if bam.lang == "lua" then
+   fidscript:write(body)
+   fidscript:close()
 
-math.randomseed(os.time())
-math.random()
-local success, err = pcall(_dofile, bam.auxfile)
-if not success then
-	local linen, err2 = err:match("%:(%d-)%:(.-)$")
-	linen = tonumber(linen)
-	local line = __script[linen] or "<end of file>"
-	io.stderr:write(string.format("bam: %s:%d: %s\nline: %s\ntransl: %s\norig: %s\n", bam.infile, linen, err2, line, __body:getn(linen) or "?", err))
-	return
+   math.randomseed(os.time())
+   math.random()
+
+   local success, err = pcall(_dofile, bam.auxfile)
+   if not success then
+      local linen, err2 = err:match("%:(%d-)%:(.-)$")
+      linen = tonumber(linen)
+      local line = __script[linen] or "<end of file>"
+      io.stderr:write(string.format("bam: %s:%d: %s\nline: %s\ntransl: %s\norig: %s\n", bam.infile, linen, err2, line, __body:getn(linen) or "?", err))
+      return
+   end
+
+   local fido = assert(_open(bam.outfile, "w"))
+   fido:write(__body:tostring())
+   fido:close()
+elseif bam.lang == "R" then
+   local rtmp = bam.outfile .. ".tmp"
+   
+   body = body:gsub("%[===%[(.-)%]===%]", function(s) return "\"" .. s:gsub("\\", "\\\\") .. "\"" end):gsub("%$%$", "$")
+   body = string.format("con <- file('%s', open='w'); source('.preamble.r'); %s\nfile.rename('%s', '%s')\n", rtmp, body, rtmp, bam.outfile)
+   fidscript:write(body)
+   fidscript:close()
+
+   local fid_preamble = _open(".preamble.r", "w"):write([=[
+pn <- function(...) {
+l <- list(...)
+for (i in l) {
+if (length(i) > 1)
+cat(file=con, i, sep='\n')
+else
+cat(file=con, i, sep='')
+}
+cat(file=con, '\n')
+}
+
+tostring <- as.character
+string.format <- function(fmt, n, dig) {
+n <- round(n, digits=dig)
+return(sprintf(fmt,n))
+}
+]=]):close()
+
+   os.execute("Rscript " .. bam.auxfile)
+   
 end
-
-local fido = assert(_open(bam.outfile, "w"))
-fido:write(__body:tostring())
-fido:close()
-
 if (logfid) then logfid:close() end
 
 print(bam.outfile .. " written.")
