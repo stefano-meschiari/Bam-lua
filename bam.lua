@@ -466,7 +466,7 @@ end)
 table.insert(bam.interp_filters, function(str, idx)
                 if (str:sub(1, 1) == "e") then
                    return string.format("sprintf('%%.%df', %s)",
-                                        tonumber(str:sub(2, 2)), str:sub(3), tonumber(str:sub(2, 2)))
+                                        tonumber(str:sub(2, 2):trim()), str:sub(3), tonumber(str:sub(2, 2):trim()))
                 end
 end)
 
@@ -474,7 +474,7 @@ end)
 table.insert(bam.interp_filters, function(str, idx)
                 if (str:sub(1, 1) == "E") then
                    local n = str:sub(2, 2)
-                   return string.format("sprintf('$%%.%df \\\\times 10^{%%.0f}$', %s/10^floor(log10(%s)), floor(log10(%s)))", n, str:sub(3), str:sub(3), str:sub(3))
+                   return string.format("sprintf('\\\\ensuremath{%%.%df \\\\times 10^{%%.0f}}', %s/10^floor(log10(%s)), floor(log10(%s)))", n, str:sub(3), str:sub(3), str:sub(3))
                 end
 end)
 
@@ -488,7 +488,7 @@ end)
 -- <@~ command @>: includes the file
 table.insert(bam.interp_filters, function(str, idx)
                 if (str:sub(1, 1) == "~") then
-                   return "readf([===[" .. str:sub(2)  .. "]===])"
+                   return "readf([===[" .. str:sub(2):trim()  .. "]===])"
                 end
 end)
 
@@ -737,6 +737,10 @@ else
 cat(file=con, i, sep='')
 }
 cat(file=con, '\n')
+}
+
+readf <- function(f) {
+return(readChar(f, file.info(f)$size))
 }
 
 tostring <- as.character
